@@ -1,232 +1,277 @@
+import requests
+import asyncio
+from bs4 import BeautifulSoup
 from flask import Flask
-from threading import Thread
+import threading
 
-# ================= KEEP ALIVE =================
-app_web = Flask('')
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    filters,
+    ContextTypes,
+    CallbackQueryHandler
+)
 
-@app_web.route('/')
+BOT_TOKEN = "8775932474:AAGarYQSKIsn732Y9LFIgYdNrQ_q-X3S0p0"
+
+# ----------- FLASK -----------
+app_flask = Flask(__name__)
+
+@app_flask.route('/')
 def home():
     return "Bot is running!"
 
-def run():
-    app_web.run(host='0.0.0.0', port=10000)
+# ----------- HEADERS -----------
+headers = {
+    "User-Agent": "Mozilla/5.0"
+}
 
-def keep_alive():
-    t = Thread(target=run)
-    t.start()
+# ----------- SCRAPER -----------
+def get_data(tid):
+    url = f"https://billpay.sonalibank.com.bd/dhkPolytechnic/Home/Voucher/{tid}"
+    r = requests.get(url, headers=headers)
+    soup = BeautifulSoup(r.text, "html.parser")
 
-# ================= ORIGINAL CODE =================
-import requests
-import time
-import csv
-import os
-from bs4 import BeautifulSoup
-from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
+    data = {
+        "Transaction ID": tid,
+        "Institute": "",
+        "Name": "",
+        "Roll": "",
+        "Tech": "",
+        "Semester": "",
+        "Mobile": "",
+        "Session": "",
+        "Amount(BDT)": "",
+        "Date": ""
+    }
 
-TOKEN = "8643223258:AAF2qByjhoWCUhgWqv1_zWkoaHMx6anPwXg"
-FILE_NAME = "data.csv"
+    rows = soup.find_all("tr")
 
-last_range = {}
+    for row in rows:
+        cols = row.find_all("td")
+        if len(cols) >= 2:
+            key = cols[0].text.strip().replace(":", "")
+            value = cols[1].text.strip()
 
-def init_file():
-    if not os.path.exists(FILE_NAME):
-        with open(FILE_NAME, "w", newline="", encoding="utf-8") as f:
-            csv.writer(f).writerow(["Name","Roll","Board","Mobile","Date","TranID"])
+            if "Institute" in key:
+                data["Institute"] = value
+            elif "Name" in key:
+                data["Name"] = value
+            elif "Roll" in key:
+                data["Roll"] = value
+            elif "Tech" in key:
+                data["Tech"] = value
+            elif "Semester" in key:
+                data["Semester"] = value
+            elif "Mobile" in key:
+                data["Mobile"] = value
+            elif "Session" in key:
+                data["Session"] = value
+            elif "Amount" in key:
+                data["Amount(BDT)"] = value
 
-def is_duplicate(tran_id):
-    if not os.path.exists(FILE_NAME):
-        return False
-    with open(FILE_NAME, "r", encoding="utf-8") as f:
-        return any(tran_id in row for row in f)
+    date_tag = soup.find(string=lambda x: x and "Date" in x)
+    if date_tag:
+        try:
+            data["Date"] = date_tag.find_next().text.strip()
+        except:
+            pass
 
-def save_data(name, roll, board, mobile, date, tran_id):
-    if is_duplicate(tran_id):
-        return
-    with open(FILE_NAME, "a", newline="", encoding="utf-8") as f:
-        csv.writer(f).writerow([name, roll, board, mobile, date, tran_id])
+    return data
 
-def get_tran_ids(roll):
-    url = f"https://billpay.sonalibank.com.bd/BoardRescrutiny/Home/Search?searchStr={roll}"
-    res = requests.get(url)
-    soup = BeautifulSoup(res.text, "html.parser")
 
-    ids = []
-    try:
-        rows = soup.find("table").find_all("tr")[1:]
-        for r in rows:
-            ids.append(r.find_all("td")[1].text.strip())
-    except:
-        pass
+# ----------- RESULT SEND -----------
+async def process_roll(update, data_list):
 
-    return ids
+    final_text = ""
+    unique_numbers = []
 
-def get_full_data(tran_id):
-    url = f"https://billpay.sonalibank.com.bd/BoardRescrutiny/Home/Voucher/{tran_id}"
-    res = requests.get(url)
-    soup = BeautifulSoup(res.text, "html.parser")
+    for i, data in enumerate(data_list, 1):
 
-    try:
-        lines = [l.strip() for l in soup.get_text("\n").split("\n") if l.strip()]
+        phone = data["Mobile"]
 
-        def find(label):
-            for i in range(len(lines)):
-                if label in lines[i]:
-                    return lines[i+1]
-            return "Not found"
+        if phone.startswith("0"):
+            phone = "880" + phone[1:]
 
-        name = find("Name")
-        roll = find("Roll")
-        board = find("Board")
-        mobile = find("Mobile")
-        date = find("Date")
+        final_text += f"""📄 Result {i}
 
-        save_data(name, roll, board, mobile, date, tran_id)
+<pre>
+Transaction ID: {data['Transaction ID']}
+Institute     : {data['Institute']}
+Name          : {data['Name']}
+Roll          : {data['Roll']}
+Tech          : {data['Tech']}
+Semester      : {data['Semester']}
+Mobile        : {data['Mobile']}
+Session       : {data['Session']}
+Amount(BDT)   : {data['Amount(BDT)']}
+Date          : {data['Date']}
+</pre>
 
-        text = f"""<pre>
-Name   : {name}
-Roll   : {roll}
-Board  : {board}
-Mobile : {mobile}
-Date   : {date}
-ID     : {tran_id}
-</pre>"""
+"""
 
-        return text, mobile
-    except:
-        return None, None
+        if phone not in unique_numbers:
+            unique_numbers.append(phone)
 
-def format_number_bd(mobile):
-    n = mobile.replace("+","").replace(" ","")
-    if n.startswith("01"):
-        return "880"+n[1:]
-    if n.startswith("880"):
-        return n
-    return None
+    keyboard = []
 
-def get_contact_buttons(mobile):
-    n = format_number_bd(mobile)
-    if not n:
-        return None
+    for phone in unique_numbers:
+        keyboard.append([
+            InlineKeyboardButton("📱 WhatsApp", url=f"https://wa.me/{phone}"),
+            InlineKeyboardButton("📢 Telegram", url=f"https://t.me/{phone}")
+        ])
 
-    return InlineKeyboardMarkup([[
-        InlineKeyboardButton("📱 WhatsApp", url=f"https://wa.me/{n}"),
-        InlineKeyboardButton("✈️ Telegram", url=f"https://t.me/+{n}")
-    ]])
-
-def next_button():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("➡️ Next 50", callback_data="next50")]
-    ])
-
-def get_keyboard():
-    return ReplyKeyboardMarkup(
-        [["🚀 Start"],["📂 Search Database"],["📥 Download Data"]],
-        resize_keyboard=True
+    await update.message.reply_text(
+        final_text,
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👋 Welcome!", reply_markup=get_keyboard())
 
-async def run_range(message, context, start, end):
-    status = await message.reply_text("⏳ Processing...")
-    count = 0
+# ----------- SEARCH -----------
+async def handle_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    for roll in range(start, end+1):
-        await status.edit_text(f"⏳ Processing...\n🔢 Roll: {roll}\n📊 Found: {count}")
-
-        for tid in get_tran_ids(roll):
-            data, mobile = get_full_data(tid)
-
-            if data:
-                count += 1
-                await message.reply_text(
-                    f"📄 Result {count}:\n{data}",
-                    parse_mode="HTML",
-                    reply_markup=get_contact_buttons(mobile)
-                )
-
-        time.sleep(2)
-
-    await status.edit_text(f"✅ Done!\n📊 Total: {count}")
-    await message.reply_text("👉 Next 50?", reply_markup=next_button())
-
-async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
-    user_id = update.message.from_user.id
-
-    if text == "🚀 Start":
-        await update.message.reply_text("✅ Ready!", reply_markup=get_keyboard())
-        return
-
-    if text == "📂 Search Database":
-        await update.message.reply_text("👉 Roll বা Range দাও (max 50)")
-        return
-
-    if text == "📥 Download Data":
-        if os.path.exists(FILE_NAME):
-            await update.message.reply_document(open(FILE_NAME,"rb"))
-        else:
-            await update.message.reply_text("❌ No data")
-        return
-
-    if text.isdigit():
-        await update.message.reply_text("⏳ Searching...")
-        for i, tid in enumerate(get_tran_ids(int(text)),1):
-            data, mobile = get_full_data(tid)
-            if data:
-                await update.message.reply_text(
-                    f"📄 Result {i}:\n{data}",
-                    parse_mode="HTML",
-                    reply_markup=get_contact_buttons(mobile)
-                )
-        return
+    rolls = []
 
     if "-" in text:
-        try:
-            start_r, end_r = map(int, text.split("-"))
-        except:
-            await update.message.reply_text("❌ Wrong format")
-            return
+        start, end = map(int, text.split("-"))
+        rolls = list(range(start, end + 1))
+        context.user_data["current_end"] = end
 
-        if (end_r-start_r+1) > 50:
-            await update.message.reply_text("❌ Max 50")
-            return
+    elif text.isdigit():
+        roll = int(text)
+        rolls = [roll]
+        context.user_data["current_end"] = roll
 
-        last_range[user_id] = (start_r, end_r)
-        await run_range(update.message, context, start_r, end_r)
-        return
+    else:
+        return await update.message.reply_text("❌ Invalid input")
 
-    await update.message.reply_text("❌ Invalid input")
+    msg = await update.message.reply_text("⏳ Processing...")
 
-async def handle_next(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    total_person = 0
+
+    for i, roll in enumerate(rolls, 1):
+
+        url = f"https://billpay.sonalibank.com.bd/dhkPolytechnic/Home/Search?searchStr={roll}"
+        r = requests.get(url, headers=headers)
+
+        if "Details" not in r.text:
+            continue
+
+        soup = BeautifulSoup(r.text, "html.parser")
+        links = soup.select("a[href*='Voucher']")
+
+        data_list = []
+
+        for link in links:
+            tid = link['href'].split("/")[-1]
+            data = get_data(tid)
+
+            if data["Name"]:
+                data_list.append(data)
+
+        if data_list:
+            total_person += 1
+            await process_roll(update, data_list)
+
+        await msg.edit_text(
+            f"⏳ Processing...\n🔢 Roll: {roll}\n📊 Person: {total_person}\n✅ Progress: {i}/{len(rolls)}"
+        )
+
+    await update.message.reply_text(
+        f"✅ Done!\n📊 Total: {total_person}"
+    )
+
+    if len(rolls) > 1:
+        keyboard = [
+            [InlineKeyboardButton("🚀 Next 500", callback_data="next_auto")]
+        ]
+
+        await update.message.reply_text(
+            "👇 Click for next batch",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+
+# ----------- NEXT BUTTON -----------
+async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    user_id = query.from_user.id
+    if query.data == "next_auto":
 
-    if user_id not in last_range:
-        await query.message.reply_text("❌ আগে search করো")
-        return
+        start = context.user_data.get("current_end", 0) + 1
+        end = start + 499
 
-    start_r, end_r = last_range[user_id]
-    new_start = end_r + 1
-    new_end = end_r + 50
+        context.user_data["current_end"] = end
 
-    last_range[user_id] = (new_start, new_end)
+        rolls = list(range(start, end + 1))
 
-    await query.message.reply_text(f"🔄 Auto: {new_start}-{new_end}")
-    await run_range(query.message, context, new_start, new_end)
+        await query.message.reply_text("⏳ Processing next 500...")
 
-# ================= RUN =================
-init_file()
-keep_alive()  # 🔥 THIS IS THE MAGIC
+        total_person = 0
 
-app = ApplicationBuilder().token(TOKEN).build()
+        for roll in rolls:
 
-app.add_handler(CommandHandler("start", start))
-app.add_handler(MessageHandler(filters.TEXT, handle))
-app.add_handler(CallbackQueryHandler(handle_next))
+            url = f"https://billpay.sonalibank.com.bd/dhkPolytechnic/Home/Search?searchStr={roll}"
+            r = requests.get(url, headers=headers)
 
-print("🤖 BOT RUNNING 24/7...")
-app.run_polling()
+            if "Details" not in r.text:
+                continue
+
+            soup = BeautifulSoup(r.text, "html.parser")
+            links = soup.select("a[href*='Voucher']")
+
+            data_list = []
+
+            for link in links:
+                tid = link['href'].split("/")[-1]
+                data = get_data(tid)
+
+                if data["Name"]:
+                    data_list.append(data)
+
+            if data_list:
+                total_person += 1
+                await process_roll(query, data_list)
+
+            await asyncio.sleep(1)
+
+        await query.message.reply_text(
+            f"✅ Done!\n📊 Total: {total_person}"
+        )
+
+        keyboard = [
+            [InlineKeyboardButton("🚀 Next 500", callback_data="next_auto")]
+        ]
+
+        await query.message.reply_text(
+            "👇 Click for next batch",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+
+# ----------- START -----------
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("🚀 Ready! Range or single roll দাও")
+
+
+# ----------- RUN BOT -----------
+async def run_bot():
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(button))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_search))
+
+    print("✅ Bot Running...")
+    await app.run_polling()
+
+
+# ----------- MAIN -----------
+if __name__ == "__main__":
+    threading.Thread(target=lambda: app_flask.run(host="0.0.0.0", port=10000)).start()
+    asyncio.run(run_bot())
