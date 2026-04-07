@@ -16,7 +16,7 @@ from telegram.ext import (
 
 BOT_TOKEN = "8775932474:AAGarYQSKIsn732Y9LFIgYdNrQ_q-X3S0p0"
 
-# ----------- FLASK -----------
+# ----------- FLASK KEEP ALIVE -----------
 app_flask = Flask(__name__)
 
 @app_flask.route('/')
@@ -82,7 +82,7 @@ def get_data(tid):
     return data
 
 
-# ----------- RESULT SEND -----------
+# ----------- SEND RESULT -----------
 async def process_roll(update, data_list):
 
     final_text = ""
@@ -256,10 +256,10 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ----------- START -----------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🚀 Ready! Range or single roll দাও")
+    await update.message.reply_text("🚀 Ready! Roll বা Range দাও")
 
 
-# ----------- RUN BOT -----------
+# ----------- RUN BOT (FIXED) -----------
 async def run_bot():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
@@ -268,10 +268,21 @@ async def run_bot():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_search))
 
     print("✅ Bot Running...")
-    await app.run_polling()
+
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling()
+
+    while True:
+        await asyncio.sleep(10)
 
 
 # ----------- MAIN -----------
 if __name__ == "__main__":
-    threading.Thread(target=lambda: app_flask.run(host="0.0.0.0", port=10000)).start()
-    asyncio.run(run_bot())
+    threading.Thread(
+        target=lambda: app_flask.run(host="0.0.0.0", port=10000)
+    ).start()
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(run_bot())
