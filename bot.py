@@ -15,7 +15,7 @@ from telegram.ext import (
     CallbackQueryHandler
 )
 
-BOT_TOKEN = "8775932474:AAGarYQSKIsn732Y9LFIgYdNrQ_q-X3S0p0"
+BOT_TOKEN = "8775932474:AAHSUTDImw7ivJaSDM3fwB2nOsPoYx9dS4A"
 
 headers = {
     "User-Agent": "Mozilla/5.0"
