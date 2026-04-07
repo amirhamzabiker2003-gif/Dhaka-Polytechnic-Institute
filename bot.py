@@ -1,10 +1,6 @@
 import requests
 import asyncio
-import os
 from bs4 import BeautifulSoup
-
-from flask import Flask
-from threading import Thread
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -16,8 +12,7 @@ from telegram.ext import (
     CallbackQueryHandler
 )
 
-# ✅ TOKEN FROM RENDER ENV
-BOT_TOKEN = os.getenv("8723976334:AAE0vOE-tZ7pZvJXBTLNUYI1ozoxvOL0tp0")
+BOT_TOKEN = "8723976334:AAE0vOE-tZ7pZvJXBTLNUYI1ozoxvOL0tp0"
 
 headers = {
     "User-Agent": "Mozilla/5.0"
@@ -131,14 +126,13 @@ async def handle_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
 
     if "-" not in text:
-        try:
-            rolls = [int(text)]
-        except:
-            return await update.message.reply_text("❌ সঠিক number দাও")
-    else:
-        start, end = map(int, text.split("-"))
-        context.user_data["current_end"] = end
-        rolls = list(range(start, end + 1))
+        return await update.message.reply_text("❌ Range দাও (e.g. 656000-656499)")
+
+    start, end = map(int, text.split("-"))
+
+    context.user_data["current_end"] = end
+
+    rolls = list(range(start, end + 1))
 
     msg = await update.message.reply_text("⏳ Processing...")
 
@@ -172,19 +166,20 @@ async def handle_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"⏳ Processing...\n🔢 Roll: {roll}\n📊 Person: {total_person}\n✅ Progress: {i}/{len(rolls)}"
         )
 
+    # ✅ Done
     await update.message.reply_text(
         f"✅ Done!\n📊 Total: {total_person}"
     )
 
-    if "-" in text:
-        keyboard = [
-            [InlineKeyboardButton("🚀 Next 500", callback_data="next_auto")]
-        ]
+    # 🚀 Next button
+    keyboard = [
+        [InlineKeyboardButton("🚀 Next 500", callback_data="next_auto")]
+    ]
 
-        await update.message.reply_text(
-            "👇 Click for next batch",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+    await update.message.reply_text(
+        "👇 Click for next batch",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
 
 # ----------- NEXT BUTTON -----------
@@ -231,10 +226,12 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             await asyncio.sleep(1)
 
+        # ✅ Done
         await query.message.reply_text(
             f"✅ Done!\n📊 Total: {total_person}"
         )
 
+        # 🚀 Next again
         keyboard = [
             [InlineKeyboardButton("🚀 Next 500", callback_data="next_auto")]
         ]
@@ -247,35 +244,15 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ----------- START -----------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🚀 Ready! Range বা single number দাও")
+    await update.message.reply_text("🚀 Ready! Range দাও (e.g. 656000-656499)")
 
 
-# ----------- FLASK SERVER -----------
-flask_app = Flask(__name__)
+# ----------- MAIN -----------
+app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-@flask_app.route('/')
-def home():
-    return "Bot is alive!"
+app.add_handler(CommandHandler("start", start))
+app.add_handler(CallbackQueryHandler(button))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_search))
 
-
-# ----------- MAIN ASYNC RUN -----------
-async def main():
-    application = ApplicationBuilder().token(BOT_TOKEN).build()
-
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CallbackQueryHandler(button))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_search))
-
-    print("✅ Bot Running...")
-
-    await application.initialize()
-    await application.start()
-
-    # Flask background
-    Thread(target=lambda: flask_app.run(host="0.0.0.0", port=10000)).start()
-
-    await application.run_polling()
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+print("✅ Bot Running...")
+app.run_polling()
