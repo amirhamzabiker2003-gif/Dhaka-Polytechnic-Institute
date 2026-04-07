@@ -1,9 +1,10 @@
 import requests
 import asyncio
+import os
 from bs4 import BeautifulSoup
 
 from flask import Flask
-import threading
+from threading import Thread
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -15,7 +16,8 @@ from telegram.ext import (
     CallbackQueryHandler
 )
 
-BOT_TOKEN = "8775932474:AAHSUTDImw7ivJaSDM3fwB2nOsPoYx9dS4A"
+# ✅ TOKEN FROM RENDER ENV
+BOT_TOKEN = os.getenv("8775932474:AAHSUTDImw7ivJaSDM3fwB2nOsPoYx9dS4A")
 
 headers = {
     "User-Agent": "Mozilla/5.0"
@@ -128,7 +130,6 @@ async def handle_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = update.message.text.strip()
 
-    # ✅ SINGLE + RANGE SUPPORT
     if "-" not in text:
         try:
             rolls = [int(text)]
@@ -249,21 +250,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🚀 Ready! Range বা single number দাও")
 
 
-# ----------- BOT RUN (FIXED) -----------
-def run_bot():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
-    application = ApplicationBuilder().token(BOT_TOKEN).build()
-
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CallbackQueryHandler(button))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_search))
-
-    print("✅ Bot Running...")
-    application.run_polling()
-
-
 # ----------- FLASK SERVER -----------
 flask_app = Flask(__name__)
 
@@ -272,9 +258,24 @@ def home():
     return "Bot is alive!"
 
 
-# ----------- MAIN -----------
-if __name__ == "__main__":
-    t = threading.Thread(target=run_bot)
-    t.start()
+# ----------- MAIN ASYNC RUN -----------
+async def main():
+    application = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    flask_app.run(host="0.0.0.0", port=10000)
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CallbackQueryHandler(button))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_search))
+
+    print("✅ Bot Running...")
+
+    await application.initialize()
+    await application.start()
+
+    # Flask background
+    Thread(target=lambda: flask_app.run(host="0.0.0.0", port=10000)).start()
+
+    await application.run_polling()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
