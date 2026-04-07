@@ -15,7 +15,7 @@ from telegram.ext import (
     CallbackQueryHandler
 )
 
-# ----------- KEEP ALIVE SERVER (For Render) -----------
+# ----------- KEEP ALIVE SERVER -----------
 app = Flask('')
 
 @app.route('/')
@@ -29,18 +29,16 @@ def keep_alive():
     t = Thread(target=run)
     t.start()
 
-# ----------- BOT CONFIGURATION -----------
-BOT_TOKEN = "8723976334:AAE0vOE-tZ7pZvJXBTLNUYI1ozoxvOL0tp0" # এখানে আপনার টোকেন বসান
+# ----------- CONFIGURATION -----------
+BOT_TOKEN = "8775932474:AAHSUTDImw7ivJaSDM3fwB2nOsPoYx9dS4A" # এখানে আপনার টোকেন বসান
 
-headers = {
-    "User-Agent": "Mozilla/5.0"
-}
+headers = {"User-Agent": "Mozilla/5.0"}
 
 # ----------- DATA SCRAPER -----------
 def get_data(tid):
     url = f"https://billpay.sonalibank.com.bd/dhkPolytechnic/Home/Voucher/{tid}"
     try:
-        r = requests.get(url, headers=headers, timeout=15)
+        r = requests.get(url, headers=headers, timeout=10)
         soup = BeautifulSoup(r.text, "html.parser")
         data = {
             "Transaction ID": tid, "Institute": "", "Name": "", "Roll": "",
@@ -66,7 +64,7 @@ def get_data(tid):
         return None
 
 # ----------- SEND RESULT -----------
-async def process_roll(update_or_query, data_list):
+async def process_roll(update, data_list):
     final_text = ""
     unique_numbers = []
     for i, data in enumerate(data_list, 1):
@@ -82,47 +80,18 @@ async def process_roll(update_or_query, data_list):
             InlineKeyboardButton("📢 Telegram", url=f"https://t.me/{phone}")
         ])
     
-    # Message logic for both Message and CallbackQuery
-    if hasattr(update_or_query, 'message'):
-        await update_or_query.message.reply_text(final_text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
-    else:
-        await update_or_query.reply_text(final_text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
+    msg_source = update.message if update.message else update.callback_query.message
+    await msg_source.reply_text(final_text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
 
-# ----------- START COMMAND -----------
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [[InlineKeyboardButton("Start", callback_data="btn_ready")]]
-    await update.message.reply_text(
-        "বটটি শুরু করতে নিচের বাটনে ক্লিক করুন:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-
-# ----------- BUTTON HANDLER -----------
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    if query.data == "btn_ready":
-        await query.message.reply_text("🚀 Ready!")
-
-# ----------- SEARCH HANDLER -----------
-async def handle_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip()
-    rolls = []
+# ----------- SEARCH CORE LOGIC -----------
+async def run_search(update_or_query, context, start_r, end_r):
+    rolls = list(range(start_r, end_r + 1))
+    context.user_data["current_end"] = end_r
     
-    try:
-        if "-" in text:
-            start_r, end_r = map(int, text.split("-"))
-            rolls = list(range(start_r, end_r + 1))
-        elif "," in text:
-            rolls = [int(r.strip()) for r in text.split(",")]
-        else:
-            rolls = [int(text)]
-    except:
-        return
-
-    msg = await update.message.reply_text("⏳ Processing...")
+    msg_source = update_or_query.message if hasattr(update_or_query, 'message') else update_or_query
+    status_msg = await msg_source.reply_text("⏳ Processing...")
+    
     total_found = 0
-
     for i, roll in enumerate(rolls, 1):
         url = f"https://billpay.sonalibank.com.bd/dhkPolytechnic/Home/Search?searchStr={roll}"
         try:
@@ -138,28 +107,57 @@ async def handle_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
                 if data_list:
                     total_found += 1
-                    await process_roll(update, data_list)
+                    await process_roll(update_or_query, data_list)
 
-            # আপনি যে ফরম্যাটটি চেয়েছেন সেভাবে আপডেট হবে
-            await msg.edit_text(
-                f"⏳ Processing...\n"
-                f"🔢 Roll: {roll}\n"
-                f"📊 Found: {total_found}\n"
-                f"✅ Progress: {i}/{len(rolls)}"
+            await status_msg.edit_text(
+                f"⏳ Processing...\n🔢 Roll: {roll}\n📊 Found: {total_found}\n✅ Progress: {i}/{len(rolls)}"
             )
-            await asyncio.sleep(0.5) # সার্ভার লোড কমানোর জন্য সামান্য বিরতি
-        except:
-            continue
+        except: continue
 
-    await update.message.reply_text(f"✅ Done!\n📊 Total Found: {total_found}")
+    # রেজাল্ট শেষ হলে মেসেজ এবং Next বাটন
+    keyboard = [[InlineKeyboardButton("👉 Next 500?", callback_data="next_500")]]
+    await msg_source.reply_text(
+        f"✅ Done!\n📊 Total Found: {total_found}",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+# ----------- HANDLERS -----------
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [[InlineKeyboardButton("Start", callback_data="btn_ready")]]
+    await update.message.reply_text("বটটি শুরু করতে নিচের বাটনে ক্লিক করুন:", reply_markup=InlineKeyboardMarkup(keyboard))
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    try:
+        if "-" in text:
+            s, e = map(int, text.split("-"))
+            await run_search(update, context, s, e)
+        elif "," in text:
+            rolls = [int(r.strip()) for r in text.split(",")]
+            # কমার ক্ষেত্রে নেক্সট বাটন দরকার নেই, শুধু রেজাল্ট আসবে
+            for r in rolls: await run_search(update, context, r, r)
+        else:
+            r = int(text)
+            await run_search(update, context, r, r)
+    except: pass
+
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == "btn_ready":
+        await query.message.reply_text("🚀 Ready!")
+    
+    elif query.data == "next_500":
+        last_end = context.user_data.get("current_end", 0)
+        if last_end > 0:
+            await run_search(query, context, last_end + 1, last_end + 500)
 
 # ----------- MAIN -----------
 if __name__ == "__main__":
-    keep_alive() # Flask starts here
+    keep_alive()
     application = ApplicationBuilder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(button_handler))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_search))
-    
-    print("✅ Bot is online with status update feature...")
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.run_polling()
