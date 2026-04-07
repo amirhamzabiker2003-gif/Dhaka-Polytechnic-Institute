@@ -17,7 +17,7 @@ from telegram.ext import (
 )
 
 # ✅ TOKEN FROM RENDER ENV
-BOT_TOKEN = os.getenv("8775932474:AAHSUTDImw7ivJaSDM3fwB2nOsPoYx9dS4A")
+BOT_TOKEN = os.getenv("8723976334:AAE0vOE-tZ7pZvJXBTLNUYI1ozoxvOL0tp0")
 
 headers = {
     "User-Agent": "Mozilla/5.0"
