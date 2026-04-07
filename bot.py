@@ -123,7 +123,7 @@ Date          : {data['Date']}
     )
 
 
-# ----------- SEARCH (UPDATED) -----------
+# ----------- SEARCH -----------
 async def handle_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = update.message.text.strip()
@@ -175,7 +175,6 @@ async def handle_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"✅ Done!\n📊 Total: {total_person}"
     )
 
-    # 👉 শুধু range হলে next button
     if "-" in text:
         keyboard = [
             [InlineKeyboardButton("🚀 Next 500", callback_data="next_auto")]
@@ -250,8 +249,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🚀 Ready! Range বা single number দাও")
 
 
-# ----------- BOT RUN -----------
+# ----------- BOT RUN (FIXED) -----------
 def run_bot():
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
     application = ApplicationBuilder().token(BOT_TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
